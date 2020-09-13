@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'optparse'
+require 'tempfile'
 
 def warn str
   Kernel.warn "WARNING: #{str}"
@@ -11,6 +12,8 @@ def debug str
 end
 
 begin
+  ########## Parse command-line arguments ##########
+
   v_num = 1
   v_limit = nil
   v_offset = nil
@@ -49,6 +52,8 @@ begin
 
   opt.permute! ARGV
 
+  ########## Generate an EXPLAIN query ##########
+
   debug "Reading from stdin..." if ARGV.empty?
 
   statements = gets(nil).split("\n\n").map do |entry|
@@ -67,7 +72,33 @@ begin
 
   raise [:empty_log, statements].inspect if statements.empty?
 
-  puts "EXPLAIN   (" + statements.join(")\nUNION ALL (") + ");"
+  # query = "EXPLAIN   (" + statements.join(")\nUNION ALL (") + ");"
+  query = statements.map{ "EXPLAIN #{_1};" }.join "\n"
+  debug query.delete "\n"
+
+  query_file = Tempfile.open do |query_file|
+    debug "open tempfile #{query_file} (#{query_file.path})"
+    query_file.print query
+    query_file.flush
+  end
+  
+  debug "tempfile content: #{File.read(query_file.path).delete "\n"}"
+
+  ########## Execute the query ##########
+  res = begin
+    host = ENV.fetch 'MYSQL_HOST', '127.0.0.1'
+    port = ENV.fetch 'MYSQL_PORT', '3306'
+    user = ENV.fetch 'MYSQL_USER', 'isucon'
+    pass = ENV.fetch 'MYSQL_PASS', 'isucon'
+    dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
+
+    debug "cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
+    res = puts `cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
+    debug $?.inspect
+    res
+  end
+
+  puts res
 
 rescue => err
   $stderr.puts err.full_message
