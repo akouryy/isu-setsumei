@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'optparse'
+require 'shellwords'
 require 'tempfile'
 
 def warn str
@@ -9,6 +10,20 @@ end
 
 def debug str
   $stderr.puts "DEBUG: #{str}" if $VERBOSE
+end
+
+def format_response res
+  table = [res.lines[0], *res.lines.grep_v(/^id\b/)].map{ _1.chomp.split "\t" }
+
+  sizes = Array.new(table.map(&:size).max){|i| table.map{|e| e[i].size }.max }
+
+  uncolored = table.map do |row|
+    row.zip(sizes).map do |c, s|
+      c.ljust s
+    end.join(" ").rstrip
+  end.join "\n"
+
+  `printf #{Shellwords.shellescape uncolored} | grep --color=always -E "filesort|"`
 end
 
 begin
@@ -93,12 +108,12 @@ begin
     dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
 
     debug "cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
-    res = puts `cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
+    res = `cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
     debug $?.inspect
     res
   end
 
-  puts res
+  puts format_response res
 
 rescue => err
   $stderr.puts err.full_message
