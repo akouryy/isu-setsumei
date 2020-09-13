@@ -1,0 +1,78 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+
+def warn str
+  Kernel.warn "WARNING: #{str}"
+end
+
+def debug str
+  $stderr.puts "DEBUG: #{str}" if $VERBOSE
+end
+
+begin
+  v_num = 1
+  v_limit = nil
+  v_offset = nil
+  v_str = "a%a"
+  v_like = nil
+
+  opt = OptionParser.new
+
+  opt.on '-n', "--number NUM", Integer, "Set the replacement value for number placeholders" do |n|
+    v_num = n
+  end
+
+  opt.on '-l', "--limit NUM", Integer, "Specify the replacement value for LIMIT placeholders" do |n|
+    v_limit = n
+  end
+
+  opt.on '-o', "--offset NUM", Integer, "Specify the replacement value for OFFSET placeholders" do |n|
+    v_offset = n
+  end
+
+  opt.on '-s', "--string STR", "Set the unescaped replacement value for string placeholders" do |s|
+    v_str = s
+  end
+
+  opt.on '-k', "--like STR", "Specify the unescaped replacement value for LIKE placeholders" do |s|
+    v_like = s
+  end
+
+  opt.on '-v', "--verbose", "Output more debug messages" do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $VERBOSE = true
+  end
+
+  opt.banner += " [slow_query_files]"
+  opt.version = [1, 0, 0]
+
+  opt.permute! ARGV
+
+  debug "Reading from stdin..." if ARGV.empty?
+
+  statements = gets(nil).split("\n\n").map do |entry|
+    next if entry !~ /\S/
+
+    header, *stmt = entry.lines(chomp: true).grep_v ""
+
+    raise [:invalid_header, entry].inspect if header !~ /^Count/
+
+    stmt.join.gsub(/\b LIMIT \s+ N \b/ix, "LIMIT #{v_limit || v_num}")
+             .gsub(/\b OFFSET \s+ N \b/ix, "OFFSET #{v_offset || v_num}")
+             .gsub(/\b N \b/ix, v_num.to_s)
+             .gsub(/\b LIKE \s+ S \b/ix, "LIKE #{(v_like || v_str).inspect}")
+             .gsub(/\b S \b/ix, v_str.inspect)
+  end
+
+  raise [:empty_log, statements].inspect if statements.empty?
+
+  puts "EXPLAIN   (" + statements.join(")\nUNION ALL (") + ");"
+
+rescue => err
+  $stderr.puts err.full_message
+  puts
+
+  puts opt.help
+  exit 10
+end
