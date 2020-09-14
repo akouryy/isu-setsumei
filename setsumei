@@ -20,6 +20,7 @@ class Config
     self.v_like = nil
     self.output_queries = false
     self.color = AUTO
+    @specials = {}
   end
 
   def verbose?; $VERBOSE end
@@ -46,6 +47,15 @@ class Config
     raise v.to_s unless COLORS.include? v
     @color = v
   end
+
+  def special r, c
+    debug @specials if r == 0 && c == 0
+    @specials[[r, c]]
+  end
+
+  def add_special r, c, v
+    @specials[[r, c]] = v
+  end
 end
 
 $conf = Config.new
@@ -56,6 +66,40 @@ end
 
 def debug str
   $stderr.puts "DEBUG: #{str}" if $conf.verbose?
+end
+
+def fill_placeholders stmt, row
+  col = 0
+  stmt.gsub %r[
+    \b
+    (?<prefix_sp>
+      (?i:
+        (?<prefix> LIMIT | OFFSET | LIKE )
+        \s+
+      )?
+    )
+    (?<ph> [NS])
+    \b
+  ]x do
+    debug "special(#{row}, #{col}) => #{$conf.special(row, col).inspect}"
+
+    fill =
+      $conf.special(row, col) ||
+        case $~[:prefix]
+        when 'LIMIT' then $conf.limit.to_s
+        when 'OFFSET' then $conf.offset.to_s
+        when 'LIKE' then $conf.like.inspect
+        when nil
+          case $~[:ph]
+          when 'N' then $conf.num.to_s
+          when 'S' then $conf.str.inspect
+          end
+        end
+
+    col += 1
+
+    $~[:prefix_sp] + fill
+  end
 end
 
 class Array
@@ -117,6 +161,14 @@ begin
     $conf.output_queries = true
   end
 
+  SPECIAL_REGEX = /\A \s* (\d+) \s* , \s* (\d+) \s* , (.+) \z/x
+
+  opt.on '-a', "--add-special ROW,COL,VAL", SPECIAL_REGEX,
+         "Specify the special replacement value for one placeholder" do |_, r, c, v|
+
+    $conf.add_special r.to_i, c.to_i, v
+  end
+
   opt.on '-v', "--verbose", "Output more debug messages" do |b|
     raise OptionParser::InvalidArgument, b unless b
     $conf.verbose = true
@@ -131,18 +183,14 @@ begin
 
   debug "Reading from stdin..." if ARGV.empty?
 
-  statements = gets(nil).split("\n\n").map do |entry|
+  statements = gets(nil).split("\n\n").map.with_index do |entry, row|
     next if entry !~ /\S/
 
     header, *stmt = entry.lines(chomp: true).grep_v ""
 
     raise [:invalid_header, entry].inspect if header !~ /^Count/
 
-    stmt.join.gsub(/\b LIMIT \s+ N \b/ix, "LIMIT #{$conf.limit}")
-             .gsub(/\b OFFSET \s+ N \b/ix, "OFFSET #{$conf.offset}")
-             .gsub(/\b N \b/ix, $conf.num.to_s)
-             .gsub(/\b LIKE \s+ S \b/ix, "LIKE #{$conf.like.inspect}")
-             .gsub(/\b S \b/ix, $conf.str.inspect)
+    fill_placeholders stmt.join, row
   end
 
   raise [:empty_log, statements].inspect if statements.empty?
@@ -150,7 +198,7 @@ begin
   query = statements.map{ "EXPLAIN #{_1};" }.join "\n"
 
   if $conf.output_queries?
-    puts query
+    puts query.lines.map.with_index{ "[#{_2}] #{_1}" }
     puts
   else
     debug query.delete "\n"
