@@ -111,7 +111,18 @@ class Array
 end
 
 def format_response res
-  table = [res.lines[0], *res.lines.grep_v(/^id\b/)].map{ _1.chomp.split "\t" }
+  i = -1
+
+  table = res.lines.map do |l|
+    if l =~ /^id\b/
+      i += 1
+      if i == 0
+        ["", *l.chomp.split("\t")]
+      end
+    else
+      ["[#{i}]", *l.chomp.split("\t")]
+    end
+  end.compact
 
   sizes = table.soft_transpose.map{|col| col.compact.map(&:size).max }
 
