@@ -8,6 +8,7 @@ class Config
   ALWAYS = :always
   AUTO = :auto
   NEVER = :never
+  COLORS = [ALWAYS, AUTO, NEVER].freeze
 
   attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like
 
@@ -17,6 +18,7 @@ class Config
     self.v_offset = nil
     self.v_str = "a%a"
     self.v_like = nil
+    self.color = AUTO
   end
 
   def verbose?; $VERBOSE end
@@ -32,6 +34,15 @@ class Config
   def str; @v_str end
 
   def like; @v_like || str end
+
+  def color?
+    @color == ALWAYS || @color == AUTO && $stdout.tty?
+  end
+
+  def color= v
+    raise v.to_s unless COLORS.include? v
+    @color = v
+  end
 end
 
 $conf = Config.new
@@ -61,7 +72,11 @@ def format_response res
     end.join(" ").rstrip
   end.join "\n"
 
-  `printf #{Shellwords.shellescape uncolored} | grep --color=always -E "filesort|"`
+  if $conf.color?
+    `printf #{Shellwords.shellescape uncolored} | grep --color=always -E "filesort|"`
+  else
+    uncolored
+  end
 end
 
 begin
@@ -86,6 +101,12 @@ begin
 
   opt.on '-k', "--like STR", "Specify the unescaped replacement value for LIKE placeholders" do |s|
     $conf.v_like = s
+  end
+
+  opt.on '-c', "--color WHEN", Config::COLORS,
+         "Specify when to highlight words; " +
+         "WHEN can be `auto` (default), `always`, or `never`" do |s|
+    $conf.color = s
   end
 
   opt.on '-v', "--verbose", "Output more debug messages" do |b|
