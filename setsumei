@@ -4,18 +4,56 @@ require 'optparse'
 require 'shellwords'
 require 'tempfile'
 
+class Config
+  ALWAYS = :always
+  AUTO = :auto
+  NEVER = :never
+
+  attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like
+
+  def initialize
+    self.v_num = 1
+    self.v_limit = nil
+    self.v_offset = nil
+    self.v_str = "a%a"
+    self.v_like = nil
+  end
+
+  def verbose?; $VERBOSE end
+
+  def verbose= v; $VERBOSE = v end
+
+  def num; @v_num end
+
+  def limit; @v_limit || num end
+
+  def offset; @v_offset || num end
+
+  def str; @v_str end
+
+  def like; @v_like || str end
+end
+
+$conf = Config.new
+
 def warn str
   Kernel.warn "WARNING: #{str}"
 end
 
 def debug str
-  $stderr.puts "DEBUG: #{str}" if $VERBOSE
+  $stderr.puts "DEBUG: #{str}" if $conf.verbose?
+end
+
+class Array
+  def soft_transpose
+    Array.new(map(&:size).max){|i| map{|e| e[i] } }
+  end
 end
 
 def format_response res
   table = [res.lines[0], *res.lines.grep_v(/^id\b/)].map{ _1.chomp.split "\t" }
 
-  sizes = Array.new(table.map(&:size).max){|i| table.map{|e| e[i].size }.max }
+  sizes = table.soft_transpose.map{|col| col.compact.map(&:size).max }
 
   uncolored = table.map do |row|
     row.zip(sizes).map do |c, s|
@@ -28,38 +66,31 @@ end
 
 begin
   ########## Parse command-line arguments ##########
-
-  v_num = 1
-  v_limit = nil
-  v_offset = nil
-  v_str = "a%a"
-  v_like = nil
-
   opt = OptionParser.new
 
   opt.on '-n', "--number NUM", Integer, "Set the replacement value for number placeholders" do |n|
-    v_num = n
+    $conf.v_num = n
   end
 
   opt.on '-l', "--limit NUM", Integer, "Specify the replacement value for LIMIT placeholders" do |n|
-    v_limit = n
+    $conf.v_limit = n
   end
 
   opt.on '-o', "--offset NUM", Integer, "Specify the replacement value for OFFSET placeholders" do |n|
-    v_offset = n
+    $conf.v_offset = n
   end
 
   opt.on '-s', "--string STR", "Set the unescaped replacement value for string placeholders" do |s|
-    v_str = s
+    $conf.v_str = s
   end
 
   opt.on '-k', "--like STR", "Specify the unescaped replacement value for LIKE placeholders" do |s|
-    v_like = s
+    $conf.v_like = s
   end
 
   opt.on '-v', "--verbose", "Output more debug messages" do |b|
     raise OptionParser::InvalidArgument, b unless b
-    $VERBOSE = true
+    $conf.verbose = true
   end
 
   opt.banner += " [slow_query_files]"
@@ -78,11 +109,11 @@ begin
 
     raise [:invalid_header, entry].inspect if header !~ /^Count/
 
-    stmt.join.gsub(/\b LIMIT \s+ N \b/ix, "LIMIT #{v_limit || v_num}")
-             .gsub(/\b OFFSET \s+ N \b/ix, "OFFSET #{v_offset || v_num}")
-             .gsub(/\b N \b/ix, v_num.to_s)
-             .gsub(/\b LIKE \s+ S \b/ix, "LIKE #{(v_like || v_str).inspect}")
-             .gsub(/\b S \b/ix, v_str.inspect)
+    stmt.join.gsub(/\b LIMIT \s+ N \b/ix, "LIMIT #{$conf.limit}")
+             .gsub(/\b OFFSET \s+ N \b/ix, "OFFSET #{$conf.offset}")
+             .gsub(/\b N \b/ix, $conf.num.to_s)
+             .gsub(/\b LIKE \s+ S \b/ix, "LIKE #{$conf.like.inspect}")
+             .gsub(/\b S \b/ix, $conf.str.inspect)
   end
 
   raise [:empty_log, statements].inspect if statements.empty?
