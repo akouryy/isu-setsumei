@@ -10,7 +10,7 @@ class Config
   NEVER = :never
   COLORS = [ALWAYS, AUTO, NEVER].freeze
 
-  attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like
+  attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like, :output_queries
 
   def initialize
     self.v_num = 1
@@ -18,6 +18,7 @@ class Config
     self.v_offset = nil
     self.v_str = "a%a"
     self.v_like = nil
+    self.output_queries = false
     self.color = AUTO
   end
 
@@ -34,6 +35,8 @@ class Config
   def str; @v_str end
 
   def like; @v_like || str end
+
+  def output_queries?; @output_queries end
 
   def color?
     @color == ALWAYS || @color == AUTO && $stdout.tty?
@@ -109,6 +112,11 @@ begin
     $conf.color = s
   end
 
+  opt.on '-q', "--query", "Output EXPLAIN queries" do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $conf.output_queries = true
+  end
+
   opt.on '-v', "--verbose", "Output more debug messages" do |b|
     raise OptionParser::InvalidArgument, b unless b
     $conf.verbose = true
@@ -119,7 +127,7 @@ begin
 
   opt.permute! ARGV
 
-  ########## Generate an EXPLAIN query ##########
+  ########## Generate EXPLAIN queries ##########
 
   debug "Reading from stdin..." if ARGV.empty?
 
@@ -139,19 +147,24 @@ begin
 
   raise [:empty_log, statements].inspect if statements.empty?
 
-  # query = "EXPLAIN   (" + statements.join(")\nUNION ALL (") + ");"
   query = statements.map{ "EXPLAIN #{_1};" }.join "\n"
-  debug query.delete "\n"
+
+  if $conf.output_queries?
+    puts query
+    puts
+  else
+    debug query.delete "\n"
+  end
 
   query_file = Tempfile.open do |query_file|
     debug "open tempfile #{query_file} (#{query_file.path})"
     query_file.print query
     query_file.flush
   end
-  
+
   debug "tempfile content: #{File.read(query_file.path).delete "\n"}"
 
-  ########## Execute the query ##########
+  ########## Execute the queries ##########
   res = begin
     host = ENV.fetch 'MYSQL_HOST', '127.0.0.1'
     port = ENV.fetch 'MYSQL_PORT', '3306'
