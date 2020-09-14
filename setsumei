@@ -90,11 +90,11 @@ def fill_placeholders stmt, row
         case $~[:prefix]
         when 'LIMIT' then $conf.limit.to_s
         when 'OFFSET' then $conf.offset.to_s
-        when 'LIKE' then $conf.like.inspect
+        when 'LIKE' then $conf.like
         when nil
           case $~[:ph]
           when 'N' then $conf.num.to_s
-          when 'S' then $conf.str.inspect
+          when 'S' then $conf.str
           end
         end
 
@@ -148,11 +148,11 @@ begin
     $conf.v_offset = n
   end
 
-  opt.on '-s', '--string STR', 'Set a unescaped replacement value for string placeholders' do |s|
+  opt.on '-s', '--string STR', 'Set a replacement value for string placeholders' do |s|
     $conf.v_str = s
   end
 
-  opt.on '-k', '--like STR', 'Specify a unescaped replacement value for LIKE placeholders' do |s|
+  opt.on '-k', '--like STR', 'Specify a replacement value for LIKE placeholders' do |s|
     $conf.v_like = s
   end
 
