@@ -11,15 +11,17 @@ class Config
   COLORS = [ALWAYS, AUTO, NEVER].freeze
 
   attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like, :output_queries
+  attr_accessor :ban
 
   def initialize
     self.v_num = 1
     self.v_limit = nil
     self.v_offset = nil
-    self.v_str = "a%a"
+    self.v_str = 'a%a'
     self.v_like = nil
     self.output_queries = false
     self.color = AUTO
+    self.ban = /\bfilesort\b/
     @specials = {}
   end
 
@@ -116,11 +118,11 @@ def format_response res
   uncolored = table.map do |row|
     row.zip(sizes).map do |c, s|
       c.ljust s
-    end.join(" ").rstrip
+    end.join(' ').rstrip
   end.join "\n"
 
   if $conf.color?
-    `printf #{Shellwords.shellescape uncolored} | grep --color=always -E "filesort|"`
+    uncolored.gsub $conf.ban, "\e[1;31m\\&\e[0m"
   else
     uncolored
   end
@@ -128,65 +130,73 @@ end
 
 begin
   ########## Parse command-line arguments ##########
+  OptionParser.accept Regexp do |s|
+    Regexp.new s rescue raise OptionParser::InvalidArgument, s
+  end
+
   opt = OptionParser.new
 
-  opt.on '-n', "--number NUM", Integer, "Set the replacement value for number placeholders" do |n|
+  opt.on '-n', '--number NUM', Integer, 'Set a replacement value for number placeholders' do |n|
     $conf.v_num = n
   end
 
-  opt.on '-l', "--limit NUM", Integer, "Specify the replacement value for LIMIT placeholders" do |n|
+  opt.on '-l', '--limit NUM', Integer, 'Specify a replacement value for LIMIT placeholders' do |n|
     $conf.v_limit = n
   end
 
-  opt.on '-o', "--offset NUM", Integer, "Specify the replacement value for OFFSET placeholders" do |n|
+  opt.on '-o', '--offset NUM', Integer, 'Specify a replacement value for OFFSET placeholders' do |n|
     $conf.v_offset = n
   end
 
-  opt.on '-s', "--string STR", "Set the unescaped replacement value for string placeholders" do |s|
+  opt.on '-s', '--string STR', 'Set a unescaped replacement value for string placeholders' do |s|
     $conf.v_str = s
   end
 
-  opt.on '-k', "--like STR", "Specify the unescaped replacement value for LIKE placeholders" do |s|
+  opt.on '-k', '--like STR', 'Specify a unescaped replacement value for LIKE placeholders' do |s|
     $conf.v_like = s
   end
 
-  opt.on '-c', "--color WHEN", Config::COLORS,
-         "Specify when to highlight words; " +
-         "WHEN can be `auto` (default), `always`, or `never`" do |s|
+  opt.on '-c', '--color WHEN', Config::COLORS,
+         'Specify when to highlight words; ' +
+         'WHEN can be `auto` (default), `always`, or `never`' do |s|
     $conf.color = s
   end
 
-  opt.on '-q', "--query", "Output EXPLAIN queries" do |b|
+  opt.on '-b', '--ban REGEXP', Regexp, 'Set the pattern for highlighting results' do |r|
+    $conf.ban = r
+  end
+
+  opt.on '-q', '--query', 'Output EXPLAIN queries' do |b|
     raise OptionParser::InvalidArgument, b unless b
     $conf.output_queries = true
   end
 
   SPECIAL_REGEX = /\A \s* (\d+) \s* , \s* (\d+) \s* , (.+) \z/x
 
-  opt.on '-a', "--add-special ROW,COL,VAL", SPECIAL_REGEX,
-         "Specify the special replacement value for one placeholder" do |_, r, c, v|
+  opt.on '-a', '--add-special ROW,COL,VAL', SPECIAL_REGEX,
+         'Specify a special replacement value for one placeholder' do |_, r, c, v|
 
     $conf.add_special r.to_i, c.to_i, v
   end
 
-  opt.on '-v', "--verbose", "Output more debug messages" do |b|
+  opt.on '-v', '--verbose', 'Output more debug messages' do |b|
     raise OptionParser::InvalidArgument, b unless b
     $conf.verbose = true
   end
 
-  opt.banner += " [slow_query_files]"
+  opt.banner += ' [slow_query_files]'
   opt.version = [1, 0, 0]
 
   opt.permute! ARGV
 
   ########## Generate EXPLAIN queries ##########
 
-  debug "Reading from stdin..." if ARGV.empty?
+  debug 'Reading from stdin...' if ARGV.empty?
 
   statements = gets(nil).split("\n\n").map.with_index do |entry, row|
     next if entry !~ /\S/
 
-    header, *stmt = entry.lines(chomp: true).grep_v ""
+    header, *stmt = entry.lines(chomp: true).grep_v ''
 
     raise [:invalid_header, entry].inspect if header !~ /^Count/
 
