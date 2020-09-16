@@ -102,11 +102,11 @@ def option_parser
     $conf.v_offset = n
   end
 
-  opt.on '--ub', '--upper-bound NUM', Integer, 'Specify a replacement value for upper bound placeholders' do |n|
+  opt.on '-U', '--upper-bound NUM', Integer, 'Specify a replacement value for upper bound placeholders' do |n|
     $conf.v_upper_bound = n
   end
 
-  opt.on '--lb', '--lower-bound NUM', Integer, 'Specify a replacement value for lower bound placeholders' do |n|
+  opt.on '-L', '--lower-bound NUM', Integer, 'Specify a replacement value for lower bound placeholders' do |n|
     $conf.v_lower_bound = n
   end
 
