@@ -225,15 +225,17 @@ def generate_explain_query
   statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
 end
 
-def execute_explain query_path
+def execute_explain query
   host = ENV.fetch 'MYSQL_HOST', '127.0.0.1'
   port = ENV.fetch 'MYSQL_PORT', '3306'
   user = ENV.fetch 'MYSQL_USER', 'isucon'
   pass = ENV.fetch 'MYSQL_PASS', 'isucon'
   dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
 
-  debug "cat #{query_path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
-  res = `cat #{query_path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
+  query = Shellwords.shellescape query
+
+  debug "echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
+  res = `echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
   debug $?.inspect
   res
 end
@@ -304,15 +306,7 @@ begin
     debug query.delete "\n"
   end
 
-  query_file = Tempfile.open do |query_file|
-    debug "open tempfile #{query_file} (#{query_file.path})"
-    query_file.print query
-    query_file.flush
-  end
-
-  debug "tempfile content: #{File.read(query_file.path).delete "\n"}"
-
-  res = execute_explain query_file.path
+  res = execute_explain query
   puts format_response res
 
 rescue => err
