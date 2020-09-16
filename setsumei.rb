@@ -167,27 +167,27 @@ end
 def fill_placeholders stmt, row
   col = 0
   stmt.gsub %r[
-    (?<holder> \b N \b)
-    (?<postfix_sp>
-      \s*
-      (?<postfix> [<>] =?) # comparison
-    )
-  |
     (?<prefix_sp>
       (?<prefix> \b LIMIT | \b OFFSET )
       \s+
     |
       (?<prefix> [<>] =?) # comparison
       \s*
-    )?
+    )
     (?<holder> \b N \b)
+  |
+    (?<holder> \b N \b)
+    (?<postfix_sp>
+      \s*
+      (?<postfix> [<>] =?) # comparison
+    )?
   |
     (?<prefix_sp>
       (
         (?<prefix> \b LIKE )
         \s*
       )?
-      ' # a quote is required
+      \' # a quote is required
     )
     (?<holder> \b S \b)
   ]ix do
@@ -197,9 +197,9 @@ def fill_placeholders stmt, row
     fill =
       $conf.special(row, col) ||
         case [$~[:prefix], $~[:postfix]]
-        in ['LIMIT', _] then $conf.limit.to_s
-        in ['OFFSET', _] then $conf.offset.to_s
-        in ['LIKE', _] then $conf.like
+        in ['LIMIT', _]                      then $conf.limit.to_s
+        in ['OFFSET', _]                     then $conf.offset.to_s
+        in ['LIKE', _]                       then $conf.like
         in ['<' | '<=', _] | [_, '>' | '>='] then $conf.upper_bound.to_s
         in ['>' | '>=', _] | [_, '<' | '<='] then $conf.lower_bound.to_s
         in [nil, nil]
@@ -223,7 +223,7 @@ def generate_explain_query
 
     header, *stmt = entry.lines(chomp: true).grep_v ''
 
-    raise [:invalid_header, entry].inspect if header !~ /^Count/
+    raise [:invalid_header, /^Count/, entry].inspect if header !~ /^Count/
 
     fill_placeholders stmt.join, row
   end
