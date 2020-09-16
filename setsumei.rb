@@ -150,7 +150,15 @@ def option_parser
     $conf.verbose = true
   end
 
-  opt.banner += ' [slow_query_files]'
+  opt.banner += <<~BANNER
+    \ [slow_query_files]
+
+        ENV MYSQL_HOST      MySQL host
+        ENV MYSQL_PORT      MySQL port
+        ENV MYSQL_USER      MySQL user name
+        ENV MYSQL_PASS      MySQL password
+        ENV MYSQL_DBNAME    MySQL database name
+  BANNER
   opt.version = [1, 0, 0]
 
   opt
@@ -222,7 +230,16 @@ def generate_explain_query
 
   raise [:empty_log, statements].inspect if statements.empty?
 
-  statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
+  query = statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
+
+  if $conf.output_queries?
+    puts query.lines.map.with_index{ "[#{_2}] #{_1}" }
+    puts
+  else
+    debug query.delete "\n"
+  end
+
+  query
 end
 
 def execute_explain query
@@ -236,7 +253,11 @@ def execute_explain query
 
   debug "echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
   res = `echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
-  debug $?.inspect
+  if $?.exitstatus != 0
+    $stderr.puts "\e[1;31mERROR\e[0m: mysql process returns #{$?.inspect}"
+  else
+    debug $?.inspect
+  end
   res
 end
 
@@ -297,22 +318,12 @@ end
 begin
   option_parser.permute! ARGV
 
-  query = generate_explain_query
-
-  if $conf.output_queries?
-    puts query.lines.map.with_index{ "[#{_2}] #{_1}" }
-    puts
-  else
-    debug query.delete "\n"
-  end
-
-  res = execute_explain query
-  puts format_response res
+  puts format_response execute_explain generate_explain_query
 
 rescue => err
   $stderr.puts err.full_message
   puts
 
-  puts opt.help
+  puts option_parser.help
   exit 10
 end
