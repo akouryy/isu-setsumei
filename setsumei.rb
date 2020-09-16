@@ -1,5 +1,4 @@
-#!/usr/bin/env ruby
-# -W:no-experimental
+#!ruby -W:no-experimental
 
 require 'optparse'
 require 'shellwords'
@@ -12,7 +11,7 @@ class Config
   COLORS = [ALWAYS, AUTO, NEVER].freeze
 
   attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like,
-              :v_upper_bound, :v_lower_bound, :output_queries
+              :v_upper_bound, :v_lower_bound, :output_queries, :compact
   attr_accessor :ban
 
   def initialize
@@ -46,6 +45,8 @@ class Config
   def lower_bound; @v_lower_bound || num end
 
   def output_queries?; @output_queries end
+
+  def compact?; @compact end
 
   def color?
     @color == ALWAYS || @color == AUTO && $stdout.tty?
@@ -140,9 +141,21 @@ def format_response res
     if l =~ /^id\b/
       i += 1
       if i == 0
+        if $conf.compact?
+          l = l.sub(/^id\b/, '#')
+               .sub(/\bselect_type\b/, 'sel.')
+               .sub(/\bpartitions\b/, 'p.')
+               .sub(/\bkey_len\b/, 'k.')
+               .sub(/\bfiltered\b/, 'f.')
+        end
         ["", *l.chomp.split("\t")]
       end
     else
+      if $conf.compact?
+        l = l.gsub(/\bNULL\b/, "\0\0")
+             .gsub(/\bUsing /, "\1")
+             .gsub(/\b\.00\b/, "\2")
+      end
       ["[#{i}]", *l.chomp.split("\t")]
     end
   end.compact
@@ -155,10 +168,23 @@ def format_response res
     end.join(' ').rstrip
   end.join "\n"
 
+  if $conf.compact?
+    uncolored =
+      "#: id, sel.: select_type, p.: partitions, k.: key_len, f.: filtered; " +
+      "\0\0: NULL, \1: Using, \2: .00\n" +
+      uncolored
+  end
+
   if $conf.color?
-    uncolored.gsub $conf.ban, "\e[1;31m\\&\e[0m"
+    uncolored.gsub($conf.ban, "\e[1;31m\\&\e[0m")
+             .gsub("\0\0", "\e[90m--\e[0m")
+             .gsub("\1", "\e[36mU\e[0m")
+             .gsub("\2", "\e[90m/\e[0m")
+             .gsub(/^(\S++ ++){6}\S*\b\K(\w++)\b(?=\S*+ ++\2\b)/, "\e[1;32m\\&\e[0m")
   else
-    uncolored
+    uncolored.gsub("\0\0", '--')
+             .gsub("\1", 'U')
+             .gsub("\2", '/')
   end
 end
 
@@ -219,6 +245,11 @@ begin
          'Specify a special replacement value for one placeholder' do |_, r, c, v|
 
     $conf.add_special r.to_i, c.to_i, v
+  end
+
+  opt.on '-z', '--zip', 'Output compactly' do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $conf.compact = true
   end
 
   opt.on '-v', '--verbose', 'Output more debug messages' do |b|
