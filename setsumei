@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# -W:no-experimental
 
 require 'optparse'
 require 'shellwords'
@@ -10,7 +11,8 @@ class Config
   NEVER = :never
   COLORS = [ALWAYS, AUTO, NEVER].freeze
 
-  attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like, :output_queries
+  attr_writer :v_num, :v_limit, :v_offset, :v_str, :v_like,
+              :v_upper_bound, :v_lower_bound, :output_queries
   attr_accessor :ban
 
   def initialize
@@ -38,6 +40,10 @@ class Config
   def str; @v_str end
 
   def like; @v_like || str end
+
+  def upper_bound; @v_upper_bound || num + 500 end
+
+  def lower_bound; @v_lower_bound || num end
 
   def output_queries?; @output_queries end
 
@@ -73,34 +79,51 @@ end
 def fill_placeholders stmt, row
   col = 0
   stmt.gsub %r[
-    \b
-    (?<prefix_sp>
-      (?i:
-        (?<prefix> LIMIT | OFFSET | LIKE )
-        \s+
-      )?
+    (?<holder> \b N \b)
+    (?<postfix_sp>
+      \s*
+      (?<postfix> [<>] =?) # comparison
     )
-    (?<ph> [NS])
-    \b
-  ]x do
+  |
+    (?<prefix_sp>
+      (?<prefix> \b LIMIT | \b OFFSET )
+      \s+
+    |
+      (?<prefix> [<>] =?) # comparison
+      \s*
+    )?
+    (?<holder> \b N \b)
+  |
+    (?<prefix_sp>
+      (
+        (?<prefix> \b LIKE )
+        \s*
+      )?
+      ' # a quote is required
+    )
+    (?<holder> \b S \b)
+  ]ix do
     debug "special(#{row}, #{col}) => #{$conf.special(row, col).inspect}"
+    debug $~.inspect
 
     fill =
       $conf.special(row, col) ||
-        case $~[:prefix]
-        when 'LIMIT' then $conf.limit.to_s
-        when 'OFFSET' then $conf.offset.to_s
-        when 'LIKE' then $conf.like
-        when nil
-          case $~[:ph]
-          when 'N' then $conf.num.to_s
-          when 'S' then $conf.str
+        case [$~[:prefix], $~[:postfix]]
+        in ['LIMIT', _] then $conf.limit.to_s
+        in ['OFFSET', _] then $conf.offset.to_s
+        in ['LIKE', _] then $conf.like
+        in ['<' | '<=', _] | [_, '>' | '>='] then $conf.upper_bound.to_s
+        in ['>' | '>=', _] | [_, '<' | '<='] then $conf.lower_bound.to_s
+        in [nil, nil]
+          case $~[:holder]
+          in 'N' then $conf.num.to_s
+          in 'S' then $conf.str
           end
         end
 
     col += 1
 
-    $~[:prefix_sp] + fill
+    [$~[:prefix_sp], fill, $~[:postfix_sp]].join
   end
 end
 
@@ -157,6 +180,14 @@ begin
 
   opt.on '-o', '--offset NUM', Integer, 'Specify a replacement value for OFFSET placeholders' do |n|
     $conf.v_offset = n
+  end
+
+  opt.on '--ub', '--upper-bound NUM', Integer, 'Specify a replacement value for upper bound placeholders' do |n|
+    $conf.v_upper_bound = n
+  end
+
+  opt.on '--lb', '--lower-bound NUM', Integer, 'Specify a replacement value for lower bound placeholders' do |n|
+    $conf.v_lower_bound = n
   end
 
   opt.on '-s', '--string STR', 'Set a replacement value for string placeholders' do |s|
@@ -216,7 +247,7 @@ begin
 
   raise [:empty_log, statements].inspect if statements.empty?
 
-  query = statements.map{ "EXPLAIN #{_1};" }.join "\n"
+  query = statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
 
   if $conf.output_queries?
     puts query.lines.map.with_index{ "[#{_2}] #{_1}" }
