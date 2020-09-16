@@ -4,6 +4,12 @@ require 'optparse'
 require 'shellwords'
 require 'tempfile'
 
+class Array
+  def soft_transpose
+    Array.new(map(&:size).max){|i| map{|e| e[i] } }
+  end
+end
+
 class Config
   ALWAYS = :always
   AUTO = :auto
@@ -77,6 +83,79 @@ def debug str
   $stderr.puts "DEBUG: #{str}" if $conf.verbose?
 end
 
+def option_parser
+  OptionParser.accept Regexp do |s|
+    Regexp.new s rescue raise OptionParser::InvalidArgument, s
+  end
+
+  opt = OptionParser.new
+
+  opt.on '-n', '--number NUM', Integer, 'Set a replacement value for number placeholders' do |n|
+    $conf.v_num = n
+  end
+
+  opt.on '-l', '--limit NUM', Integer, 'Specify a replacement value for LIMIT placeholders' do |n|
+    $conf.v_limit = n
+  end
+
+  opt.on '-o', '--offset NUM', Integer, 'Specify a replacement value for OFFSET placeholders' do |n|
+    $conf.v_offset = n
+  end
+
+  opt.on '--ub', '--upper-bound NUM', Integer, 'Specify a replacement value for upper bound placeholders' do |n|
+    $conf.v_upper_bound = n
+  end
+
+  opt.on '--lb', '--lower-bound NUM', Integer, 'Specify a replacement value for lower bound placeholders' do |n|
+    $conf.v_lower_bound = n
+  end
+
+  opt.on '-s', '--string STR', 'Set a replacement value for string placeholders' do |s|
+    $conf.v_str = s
+  end
+
+  opt.on '-k', '--like STR', 'Specify a replacement value for LIKE placeholders' do |s|
+    $conf.v_like = s
+  end
+
+  opt.on '-c', '--color WHEN', Config::COLORS,
+         'Specify when to highlight words; ' +
+         'WHEN can be `auto` (default), `always`, or `never`' do |s|
+    $conf.color = s
+  end
+
+  opt.on '-b', '--ban REGEXP', Regexp, 'Set the pattern for highlighting results' do |r|
+    $conf.ban = r
+  end
+
+  opt.on '-q', '--query', 'Output EXPLAIN queries' do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $conf.output_queries = true
+  end
+
+  opt.on '-a', '--add-special ROW,COL,VAL',
+         /\A \s* (\d+) \s* , \s* (\d+) \s* , (.+) \z/x,
+         'Specify a special replacement value for one placeholder' do |_, r, c, v|
+
+    $conf.add_special r.to_i, c.to_i, v
+  end
+
+  opt.on '-z', '--zip', 'Output compactly' do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $conf.compact = true
+  end
+
+  opt.on '-v', '--verbose', 'Output more debug messages' do |b|
+    raise OptionParser::InvalidArgument, b unless b
+    $conf.verbose = true
+  end
+
+  opt.banner += ' [slow_query_files]'
+  opt.version = [1, 0, 0]
+
+  opt
+end
+
 def fill_placeholders stmt, row
   col = 0
   stmt.gsub %r[
@@ -128,10 +207,35 @@ def fill_placeholders stmt, row
   end
 end
 
-class Array
-  def soft_transpose
-    Array.new(map(&:size).max){|i| map{|e| e[i] } }
+def generate_explain_query
+  debug 'Reading from stdin...' if ARGV.empty?
+
+  statements = gets(nil).split("\n\n").map.with_index do |entry, row|
+    next if entry !~ /\S/
+
+    header, *stmt = entry.lines(chomp: true).grep_v ''
+
+    raise [:invalid_header, entry].inspect if header !~ /^Count/
+
+    fill_placeholders stmt.join, row
   end
+
+  raise [:empty_log, statements].inspect if statements.empty?
+
+  statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
+end
+
+def execute_explain query_path
+  host = ENV.fetch 'MYSQL_HOST', '127.0.0.1'
+  port = ENV.fetch 'MYSQL_PORT', '3306'
+  user = ENV.fetch 'MYSQL_USER', 'isucon'
+  pass = ENV.fetch 'MYSQL_PASS', 'isucon'
+  dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
+
+  debug "cat #{query_path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
+  res = `cat #{query_path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
+  debug $?.inspect
+  res
 end
 
 def format_response res
@@ -171,7 +275,7 @@ def format_response res
   if $conf.compact?
     uncolored =
       "#: id, sel.: select_type, p.: partitions, k.: key_len, f.: filtered; " +
-      "\0\0: NULL, \1: Using, \2: .00\n" +
+      "\0\0: NULL, \1: Using, \2: .00\n\n" +
       uncolored
   end
 
@@ -180,7 +284,7 @@ def format_response res
              .gsub("\0\0", "\e[90m--\e[0m")
              .gsub("\1", "\e[36mU\e[0m")
              .gsub("\2", "\e[90m/\e[0m")
-             .gsub(/^(\S++ ++){6}\S*\b\K(\w++)\b(?=\S*+ ++\2\b)/, "\e[1;32m\\&\e[0m")
+             .gsub(/^(\S++ ++){6}\S*\b\K(\w++)\b(?=\S*+ ++\2\b)/, "\e[36m\\&\e[0m")
   else
     uncolored.gsub("\0\0", '--')
              .gsub("\1", 'U')
@@ -189,96 +293,9 @@ def format_response res
 end
 
 begin
-  ########## Parse command-line arguments ##########
-  OptionParser.accept Regexp do |s|
-    Regexp.new s rescue raise OptionParser::InvalidArgument, s
-  end
+  option_parser.permute! ARGV
 
-  opt = OptionParser.new
-
-  opt.on '-n', '--number NUM', Integer, 'Set a replacement value for number placeholders' do |n|
-    $conf.v_num = n
-  end
-
-  opt.on '-l', '--limit NUM', Integer, 'Specify a replacement value for LIMIT placeholders' do |n|
-    $conf.v_limit = n
-  end
-
-  opt.on '-o', '--offset NUM', Integer, 'Specify a replacement value for OFFSET placeholders' do |n|
-    $conf.v_offset = n
-  end
-
-  opt.on '--ub', '--upper-bound NUM', Integer, 'Specify a replacement value for upper bound placeholders' do |n|
-    $conf.v_upper_bound = n
-  end
-
-  opt.on '--lb', '--lower-bound NUM', Integer, 'Specify a replacement value for lower bound placeholders' do |n|
-    $conf.v_lower_bound = n
-  end
-
-  opt.on '-s', '--string STR', 'Set a replacement value for string placeholders' do |s|
-    $conf.v_str = s
-  end
-
-  opt.on '-k', '--like STR', 'Specify a replacement value for LIKE placeholders' do |s|
-    $conf.v_like = s
-  end
-
-  opt.on '-c', '--color WHEN', Config::COLORS,
-         'Specify when to highlight words; ' +
-         'WHEN can be `auto` (default), `always`, or `never`' do |s|
-    $conf.color = s
-  end
-
-  opt.on '-b', '--ban REGEXP', Regexp, 'Set the pattern for highlighting results' do |r|
-    $conf.ban = r
-  end
-
-  opt.on '-q', '--query', 'Output EXPLAIN queries' do |b|
-    raise OptionParser::InvalidArgument, b unless b
-    $conf.output_queries = true
-  end
-
-  SPECIAL_REGEX = /\A \s* (\d+) \s* , \s* (\d+) \s* , (.+) \z/x
-
-  opt.on '-a', '--add-special ROW,COL,VAL', SPECIAL_REGEX,
-         'Specify a special replacement value for one placeholder' do |_, r, c, v|
-
-    $conf.add_special r.to_i, c.to_i, v
-  end
-
-  opt.on '-z', '--zip', 'Output compactly' do |b|
-    raise OptionParser::InvalidArgument, b unless b
-    $conf.compact = true
-  end
-
-  opt.on '-v', '--verbose', 'Output more debug messages' do |b|
-    raise OptionParser::InvalidArgument, b unless b
-    $conf.verbose = true
-  end
-
-  opt.banner += ' [slow_query_files]'
-  opt.version = [1, 0, 0]
-
-  opt.permute! ARGV
-
-  ########## Generate EXPLAIN queries ##########
-
-  debug 'Reading from stdin...' if ARGV.empty?
-
-  statements = gets(nil).split("\n\n").map.with_index do |entry, row|
-    next if entry !~ /\S/
-
-    header, *stmt = entry.lines(chomp: true).grep_v ''
-
-    raise [:invalid_header, entry].inspect if header !~ /^Count/
-
-    fill_placeholders stmt.join, row
-  end
-
-  raise [:empty_log, statements].inspect if statements.empty?
-
-  query = statements.map{ "EXPLAIN #{_1};".split.join ' ' }.join "\n"
+  query = generate_explain_query
 
   if $conf.output_queries?
     puts query.lines.map.with_index{ "[#{_2}] #{_1}" }
@@ -295,20 +312,7 @@ begin
 
   debug "tempfile content: #{File.read(query_file.path).delete "\n"}"
 
-  ########## Execute the queries ##########
-  res = begin
-    host = ENV.fetch 'MYSQL_HOST', '127.0.0.1'
-    port = ENV.fetch 'MYSQL_PORT', '3306'
-    user = ENV.fetch 'MYSQL_USER', 'isucon'
-    pass = ENV.fetch 'MYSQL_PASS', 'isucon'
-    dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
-
-    debug "cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
-    res = `cat #{query_file.path} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
-    debug $?.inspect
-    res
-  end
-
+  res = execute_explain query_file.path
   puts format_response res
 
 rescue => err
