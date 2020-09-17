@@ -153,11 +153,15 @@ def option_parser
   opt.banner += <<~BANNER
     \ [slow_query_files]
 
-        ENV MYSQL_HOST      MySQL host
-        ENV MYSQL_PORT      MySQL port
-        ENV MYSQL_USER      MySQL user name
-        ENV MYSQL_PASS      MySQL password
-        ENV MYSQL_DBNAME    MySQL database name
+    parameters:
+        [slow_query_files]      If specified, read logs from them. Otherwise, use STDIN instead.
+    environment variables:
+        MYSQL_HOST              MySQL host
+        MYSQL_PORT              MySQL port
+        MYSQL_USER              MySQL user name
+        MYSQL_PASS              MySQL password
+        MYSQL_DBNAME            MySQL database name
+    options:
   BANNER
   opt.version = [1, 0, 0]
 
