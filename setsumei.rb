@@ -255,8 +255,9 @@ def execute_explain query
 
   query = Shellwords.shellescape query
 
-  debug "echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}"
-  res = `echo #{query} | mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname}`
+  File.write 'setsumei-query.txt', query
+  debug "mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname} < setsumei-query.txt"
+  res = `mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname} < setsumei-query.txt`
   if $?.exitstatus != 0
     $stderr.puts "\e[1;31mERROR\e[0m: mysql process returns #{$?.inspect}"
   else
