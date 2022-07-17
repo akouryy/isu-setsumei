@@ -48,7 +48,7 @@ class Config
 
   def upper_bound; @v_upper_bound || num + 500 end
 
-  def lower_bound; @v_lower_bound || num end
+  def lower_bound; @v_lower_bound || num - 500 end
 
   def output_queries?; @output_queries end
 
