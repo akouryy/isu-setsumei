@@ -237,7 +237,7 @@ def generate_explain_query
     next if stmt =~ %r{
       ^ \s*
       (
-        administrator\ command: | (UN)?LOCK\ TABLES\b | ROLLBACK\b |
+        administrator\ command: | (UN)?LOCK\ TABLES\b | COMMIT\b | ROLLBACK\b |
         (CREATE|DROP)\ TABLE\b | START\ TRANSACTION\b | ALTER\ TABLE\b
       )
     }x
