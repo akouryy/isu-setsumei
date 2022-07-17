@@ -222,14 +222,20 @@ end
 def generate_explain_query
   debug 'Reading from stdin...' if ARGV.empty?
 
-  statements = gets(nil).split("\n\n").map.with_index do |entry, row|
+  statements = gets(nil).split("\n\n").filter_map.with_index do |entry, row|
     next if entry !~ /\S/
 
     header, *stmt = entry.lines(chomp: true).grep_v ''
 
     raise [:invalid_header, /^Count/, entry].inspect if header !~ /^Count/
 
-    stmt = stmt.filter{|s| s !~ %r{^ \s* ( /\*! | \# | administrator\ command: )}x }.map(&:strip).join(' ')
+    stmt = stmt.filter{|s| s !~ %r{
+      ^ \s*
+      (
+        /\*! | \# | administrator\ command: | (UN)?LOCK\ TABLES\b | ROLLBACK\b |
+        (CREATE|DROP)\ TABLE\b | START\ TRANSACTION\b | ALTER\ TABLE\b
+      )
+    }x }.map(&:strip).join(' ')
 
     next if stmt.length > 200
     next if stmt !~ /\S/
