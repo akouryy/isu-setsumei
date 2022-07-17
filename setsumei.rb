@@ -229,7 +229,7 @@ def generate_explain_query
 
     raise [:invalid_header, /^Count/, entry].inspect if header !~ /^Count/
 
-    stmt = stmt.filter{|s| s !~ %r{^ \s* (/\*! | # | administrator\ command:)}x }.map(&:strip).join(' ')
+    stmt = stmt.filter{|s| s !~ %r{^ \s* ( /\*! | \# | administrator\ command: )}x }.map(&:strip).join(' ')
 
     next if stmt.length > 200
 
