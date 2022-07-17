@@ -229,7 +229,11 @@ def generate_explain_query
 
     raise [:invalid_header, /^Count/, entry].inspect if header !~ /^Count/
 
-    fill_placeholders stmt.join, row
+    stmt = stmt.filter{|s| s !~ %r{^ \s* (/\*! | # | administrator\ command:)}x }.map(&:strip).join(' ')
+
+    next if stmt.length > 200
+
+    fill_placeholders stmt, row
   end
 
   raise [:empty_log, statements].inspect if statements.empty?
