@@ -229,17 +229,18 @@ def generate_explain_query
 
     raise [:invalid_header, /^Count/, entry].inspect if header !~ /^Count/
 
-    stmt = stmt.filter{|s| s !~ %r{
-      ^ \s*
-      (
-        /\*! | \# | administrator\ command: | (UN)?LOCK\ TABLES\b | ROLLBACK\b |
-        (CREATE|DROP)\ TABLE\b | START\ TRANSACTION\b | ALTER\ TABLE\b
-      )
-    }x }.map(&:strip).join(' ')
+    stmt = stmt.filter{|s| s !~ %r{^\s*(/\*!|\#)} }.map(&:strip).join(' ')
 
     next if stmt.length > 200
     next if stmt !~ /\S/
     next if stmt =~ /;/
+    next if stmt =~ %r{
+      ^ \s*
+      (
+        administrator\ command: | (UN)?LOCK\ TABLES\b | ROLLBACK\b |
+        (CREATE|DROP)\ TABLE\b | START\ TRANSACTION\b | ALTER\ TABLE\b
+      )
+    }x
 
     fill_placeholders stmt, row
   end
