@@ -232,6 +232,8 @@ def generate_explain_query
     stmt = stmt.filter{|s| s !~ %r{^ \s* ( /\*! | \# | administrator\ command: )}x }.map(&:strip).join(' ')
 
     next if stmt.length > 200
+    next if stmt !~ /\S/
+    next if stmt =~ /;/
 
     fill_placeholders stmt, row
   end
