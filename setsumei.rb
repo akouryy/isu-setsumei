@@ -253,7 +253,7 @@ def execute_explain query
   pass = ENV.fetch 'MYSQL_PASS', 'isucon'
   dbname = ENV.fetch 'MYSQL_DBNAME', 'isuumo'
 
-  query = Shellwords.shellescape query
+  # query = Shellwords.shellescape query
 
   File.write 'setsumei-query.txt', query
   debug "mysql -h#{host} -P#{port} -u#{user} -p#{pass} #{dbname} < setsumei-query.txt"
